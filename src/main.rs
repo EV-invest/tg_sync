@@ -1,22 +1,27 @@
-#![feature(default_field_values)]
 //! One-way bridge: the EV Telegram supergroup → Discord.
 //!
 //! Long-polls `getUpdates` and re-posts every message through a Discord webhook,
-//! one webhook per mirrored channel, so each post renders under its original
+//! one webhook per mirror channel, so each post renders under its original
 //! Telegram author's name. No bot gateway, no database, no PVC.
+//!
+//! **No declarative topic map.** A forum Topic gets its Discord channel the first
+//! time it says anything — created under the configured category, named after the
+//! Topic, renamed when the Topic is. See [`channels`].
 //!
 //! **Offset durability without storage.** Telegram drops an update server-side
 //! only once the next `getUpdates` confirms it, so the offset advances *after* a
 //! successful Discord post. A crash therefore replays the unconfirmed tail —
 //! at-least-once, bounded duplicates, never loss, and nothing to persist.
 
+mod channels;
 mod config;
 mod discord;
 mod render;
 mod telegram;
 
+use channels::{Channels, GENERAL_THREAD_ID};
 use color_eyre::eyre::{Context, Result};
-use config::{Config, Router};
+use config::Config;
 use discord::Discord;
 use telegram::Telegram;
 
@@ -36,11 +41,12 @@ fn main() -> Result<()> {
 }
 
 async fn run(config: Config) -> Result<()> {
-	// Every webhook is resolved before the first poll: an unmapped topic is fine
-	// (it has a catch-all), a *mapped* topic with no webhook is a boot failure.
-	let router = Router::from_env(&config.tg_topic_map).context("failed to resolve the Discord webhooks")?;
 	let telegram = Telegram::try_new(config.telegram_bot_token.clone(), config.tg_poll_timeout_secs)?;
-	let discord = Discord::try_new()?;
+	// Resolving the category here means a bad id, a revoked Discord token or a
+	// missing permission fails the boot instead of the first message.
+	let channels = Channels::try_new(Discord::try_new(config.discord_bot_token.clone())?, config.discord_tg_category_id.clone())
+		.await
+		.context("failed to open the Discord mirror category")?;
 
 	let listener = tokio::net::TcpListener::bind(config.bind).await.with_context(|| format!("failed to bind {}", config.bind))?;
 	tracing::info!(bind = %config.bind, chat = config.tg_chat_id, "tg-sync mirroring");
@@ -50,13 +56,13 @@ async fn run(config: Config) -> Result<()> {
 	// simply replayed by the next pod, which is the same guarantee a crash gets.
 	tokio::select! {
 		result = health => result.context("health server error")?,
-		result = mirror(&telegram, &discord, &router, &config) => result?,
+		result = mirror(&telegram, channels, &config) => result?,
 		_ = await_signal() => tracing::info!("shutdown signal received"),
 	}
 	Ok(())
 }
 
-async fn mirror(telegram: &Telegram, discord: &Discord, router: &Router, config: &Config) -> Result<()> {
+async fn mirror(telegram: &Telegram, mut channels: Channels, config: &Config) -> Result<()> {
 	// 0 asks for everything still pending, which after a crash is exactly the
 	// tail that never reached Discord.
 	let mut offset = 0;
@@ -68,11 +74,11 @@ async fn mirror(telegram: &Telegram, discord: &Discord, router: &Router, config:
 			let edited = update.message.is_none();
 			match update.message.as_ref().or(update.edited_message.as_ref()) {
 				// The bot only mirrors the one group it was configured for; being added
-				// to another chat must not start pumping it into #unmapped.
+				// to another chat must not start creating channels for it.
 				Some(message) if message.chat.id != config.tg_chat_id => {
 					tracing::warn!(chat = message.chat.id, "message from an unconfigured chat — not mirrored")
 				}
-				Some(message) => relay(telegram, discord, router, config, message, edited).await?,
+				Some(message) => relay(telegram, &mut channels, config, message, edited).await?,
 				// Structural, not transient: crashing would replay this update forever.
 				// The error reaches Discord through the `tg-sync` alert front instead.
 				None => tracing::error!(update_id = update.update_id, "update carries neither message nor edited_message — skipping"),
@@ -89,8 +95,7 @@ async fn mirror(telegram: &Telegram, discord: &Discord, router: &Router, config:
 // crashloops forever instead of advancing — the deliberate price of "never drop".
 // The tg-sync alert front is what surfaces it; add a poison-message quarantine
 // channel only once one actually shows up.
-async fn relay(telegram: &Telegram, discord: &Discord, router: &Router, config: &Config, message: &telegram::Message, edited: bool) -> Result<()> {
-	let webhook = router.route(message.message_thread_id);
+async fn relay(telegram: &Telegram, channels: &mut Channels, config: &Config, message: &telegram::Message, edited: bool) -> Result<()> {
 	let post = render::render(message, edited, config.tg_media_max_bytes);
 	assert!(!post.chunks.is_empty(), "render always emits the source subtext line");
 
@@ -102,11 +107,14 @@ async fn relay(telegram: &Telegram, discord: &Discord, router: &Router, config: 
 		None => None,
 	};
 
+	let thread = message.message_thread_id.unwrap_or(GENERAL_THREAD_ID);
+	let webhook = channels.webhook(thread, render::topic_name(message)).await?.to_string();
+
 	// The attachment rides the last chunk so it lands under the full text.
 	let last = post.chunks.len() - 1;
 	for (i, chunk) in post.chunks.iter().enumerate() {
 		let file = if i == last { bytes.as_ref().map(|(name, data)| (*name, data.as_slice())) } else { None };
-		discord.post(webhook, &post.username, chunk, file).await.context("failed to post to Discord")?;
+		channels.discord().post(&webhook, &post.username, chunk, file).await.context("failed to post to Discord")?;
 	}
 	Ok(())
 }

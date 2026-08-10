@@ -25,6 +25,22 @@ pub struct PendingFile {
 	pub name: String,
 }
 
+/// The Topic's name, if this update happens to reveal it.
+///
+/// The Bot API cannot list a forum's Topics, so this is the only source there is.
+/// It is reliable in practice: Telegram sets `reply_to_message` to the Topic's
+/// creation message for every message in the Topic that is not a reply to some
+/// other message, so any conversation names its Topic within a message or two.
+pub fn topic_name(message: &Message) -> Option<&str> {
+	fn named(m: &Message) -> Option<&str> {
+		m.forum_topic_edited
+			.as_ref()
+			.and_then(|e| e.name.as_deref())
+			.or(m.forum_topic_created.as_ref().map(|c| c.name.as_str()))
+	}
+	named(message).or_else(|| message.reply_to_message.as_deref().and_then(named))
+}
+
 pub fn render(message: &Message, edited: bool, max_bytes: u64) -> Post {
 	let source = source_link(message.chat.id, message.message_thread_id, message.message_id);
 
@@ -36,11 +52,15 @@ pub fn render(message: &Message, edited: bool, max_bytes: u64) -> Post {
 		head.push_str(&format!("-# ↳ replying to {who}: \"{}\"\n", snippet(reply)));
 	}
 
-	let mut body = match &message.forum_topic_created {
-		// The one service message that must be readable: a new Topic lands in
-		// #unmapped and this line is what tells you which id to wire up.
-		Some(topic) => format!("🆕 topic **{}** · thread id `{}`", topic.name, message.message_thread_id.unwrap_or(message.message_id)),
-		None => message.text.clone().or_else(|| message.caption.clone()).unwrap_or_default(),
+	// The Topic lifecycle reads as the channel's own first line, so the mirror
+	// explains where it came from without anyone consulting Telegram.
+	let mut body = match (&message.forum_topic_created, &message.forum_topic_edited) {
+		(Some(topic), _) => format!("🆕 mirroring the Telegram topic **{}**", topic.name),
+		(_, Some(edit)) => match &edit.name {
+			Some(name) => format!("✏️ the Telegram topic is now called **{name}**"),
+			None => String::new(),
+		},
+		_ => message.text.clone().or_else(|| message.caption.clone()).unwrap_or_default(),
 	};
 
 	// A sticker's only text is its emoji; without it the post is a bare .webp
