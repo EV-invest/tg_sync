@@ -41,6 +41,15 @@ pub struct User {
 	pub first_name: String,
 	pub last_name: Option<String>,
 }
+impl User {
+	/// Display name for the Discord webhook identity override.
+	pub fn display(&self) -> String {
+		match &self.last_name {
+			Some(last) => format!("{} {last}", self.first_name),
+			None => self.first_name.clone(),
+		}
+	}
+}
 
 #[derive(Debug, Deserialize)]
 pub struct ForumTopicCreated {
@@ -63,36 +72,13 @@ pub struct FileMeta {
 	pub emoji: Option<String>,
 }
 
-impl User {
-	/// Display name for the Discord webhook identity override.
-	pub fn display(&self) -> String {
-		match &self.last_name {
-			Some(last) => format!("{} {last}", self.first_name),
-			None => self.first_name.clone(),
-		}
-	}
-}
-
-#[derive(Deserialize)]
-struct ApiResponse<T> {
-	ok: bool,
-	result: Option<T>,
-	description: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct File {
-	file_path: Option<String>,
-}
-
 pub struct Telegram {
 	http: reqwest::Client,
 	token: String,
 	poll_timeout: u64,
 }
-
 impl Telegram {
-	pub fn new(token: String, poll_timeout: u64) -> Result<Self> {
+	pub fn try_new(token: String, poll_timeout: u64) -> Result<Self> {
 		// The long poll holds the connection for `poll_timeout`; the client budget
 		// must clear it or every idle poll would look like a network failure.
 		let http = reqwest::Client::builder().timeout(Duration::from_secs(poll_timeout + 35)).build()?;
@@ -143,4 +129,16 @@ impl Telegram {
 		}
 		parsed.result.ok_or_else(|| eyre!("telegram {method} returned ok without a result"))
 	}
+}
+
+#[derive(Deserialize)]
+struct ApiResponse<T> {
+	ok: bool,
+	result: Option<T>,
+	description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct File {
+	file_path: Option<String>,
 }

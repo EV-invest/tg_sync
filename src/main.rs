@@ -1,3 +1,4 @@
+#![feature(default_field_values)]
 //! One-way bridge: the EV Telegram supergroup → Discord.
 //!
 //! Long-polls `getUpdates` and re-posts every message through a Discord webhook,
@@ -38,8 +39,8 @@ async fn run(config: Config) -> Result<()> {
 	// Every webhook is resolved before the first poll: an unmapped topic is fine
 	// (it has a catch-all), a *mapped* topic with no webhook is a boot failure.
 	let router = Router::from_env(&config.tg_topic_map).context("failed to resolve the Discord webhooks")?;
-	let telegram = Telegram::new(config.telegram_bot_token.clone(), config.tg_poll_timeout_secs)?;
-	let discord = Discord::new()?;
+	let telegram = Telegram::try_new(config.telegram_bot_token.clone(), config.tg_poll_timeout_secs)?;
+	let discord = Discord::try_new()?;
 
 	let listener = tokio::net::TcpListener::bind(config.bind).await.with_context(|| format!("failed to bind {}", config.bind))?;
 	tracing::info!(bind = %config.bind, chat = config.tg_chat_id, "tg-sync mirroring");
@@ -59,6 +60,9 @@ async fn mirror(telegram: &Telegram, discord: &Discord, router: &Router, config:
 	// 0 asks for everything still pending, which after a crash is exactly the
 	// tail that never reached Discord.
 	let mut offset = 0;
+	// Ends by returning an error (crashing the pod, which replays the unconfirmed
+	// tail) or by losing the `select!` in `run` to the shutdown signal.
+	//LOOP: unbounded by design — the poll IS the process's lifetime.
 	loop {
 		for update in telegram.get_updates(offset).await? {
 			let edited = update.message.is_none();

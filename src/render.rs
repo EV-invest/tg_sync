@@ -25,21 +25,6 @@ pub struct PendingFile {
 	pub name: String,
 }
 
-/// What the message carries besides text, once measured against the relay cap.
-enum Media<'a> {
-	None,
-	Inline {
-		file_id: &'a str,
-		name: String,
-	},
-	/// Over the cap, or of unknown size — either way the bytes never move.
-	Over {
-		name: String,
-		kind: &'static str,
-		size: Option<u64>,
-	},
-}
-
 pub fn render(message: &Message, edited: bool, max_bytes: u64) -> Post {
 	let source = source_link(message.chat.id, message.message_thread_id, message.message_id);
 
@@ -103,6 +88,20 @@ pub fn render(message: &Message, edited: bool, max_bytes: u64) -> Post {
 		chunks,
 		file,
 	}
+}
+/// What the message carries besides text, once measured against the relay cap.
+enum Media<'a> {
+	None,
+	Inline {
+		file_id: &'a str,
+		name: String,
+	},
+	/// Over the cap, or of unknown size — either way the bytes never move.
+	Over {
+		name: String,
+		kind: &'static str,
+		size: Option<u64>,
+	},
 }
 
 /// `t.me/c/<channel>/<thread>/<id>` — the private-supergroup form documented at

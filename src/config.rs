@@ -26,6 +26,12 @@ ev::settings! {
 	}
 }
 
+/// Telegram omits `message_thread_id` on the General topic (and on every message
+/// of a non-forum group); id 1 is what the client's own deep links use for it, so
+/// the map can name it like any other topic.
+pub const GENERAL_THREAD_ID: i64 = 1;
+const WEBHOOK_PREFIX: &str = "DISCORD_WEBHOOK_TG_";
+const UNMAPPED_VAR: &str = "DISCORD_WEBHOOK_TG_UNMAPPED";
 /// Thread id → webhook URL, with the catch-all every unmapped topic lands in.
 ///
 /// Built once at boot so a missing webhook is a boot failure rather than a message
@@ -34,15 +40,6 @@ pub struct Router {
 	by_thread: HashMap<i64, String>,
 	unmapped: String,
 }
-
-/// Telegram omits `message_thread_id` on the General topic (and on every message
-/// of a non-forum group); id 1 is what the client's own deep links use for it, so
-/// the map can name it like any other topic.
-pub const GENERAL_THREAD_ID: i64 = 1;
-
-const WEBHOOK_PREFIX: &str = "DISCORD_WEBHOOK_TG_";
-const UNMAPPED_VAR: &str = "DISCORD_WEBHOOK_TG_UNMAPPED";
-
 impl Router {
 	pub fn from_env(topic_map: &[String]) -> Result<Self> {
 		let unmapped = webhook(UNMAPPED_VAR)?;

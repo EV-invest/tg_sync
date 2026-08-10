@@ -8,17 +8,11 @@ use serde::Deserialize;
 /// crashes the pod (and replays) instead of hanging silently.
 const MAX_RATE_LIMIT_RETRIES: u32 = 10;
 
-#[derive(Deserialize)]
-struct RateLimited {
-	retry_after: f64,
-}
-
 pub struct Discord {
 	http: reqwest::Client,
 }
-
 impl Discord {
-	pub fn new() -> Result<Self> {
+	pub fn try_new() -> Result<Self> {
 		Ok(Self {
 			http: reqwest::Client::builder().timeout(Duration::from_secs(60)).build()?,
 		})
@@ -64,4 +58,9 @@ impl Discord {
 		}
 		bail!("discord kept rate limiting the webhook after {MAX_RATE_LIMIT_RETRIES} retries")
 	}
+}
+
+#[derive(Deserialize)]
+struct RateLimited {
+	retry_after: f64,
 }

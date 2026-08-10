@@ -7,14 +7,10 @@ license = "BlueOak-1.0.0"
 publish = false
 
 [dependencies]
-# One route (`/health`) for the k8s probes the v_flakes container contract generates.
 axum = "0.8"
 color-eyre = "0.6"
 dotenvy = "0.15"
 ev = { version = "0.6", package = "ev_lib", default-features = false, features = ["otel", "settings"] }
-# rustls only (no native-tls), matching the rest of the stack. `multipart` is the
-# Discord file-upload seam; `stream` is not needed — relayed files are capped well
-# under the buffer size we are willing to hold.
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "multipart"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
