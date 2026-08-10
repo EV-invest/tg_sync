@@ -20,6 +20,7 @@ pub struct Message {
 	pub caption: Option<String>,
 	pub reply_to_message: Option<Box<Message>>,
 	pub forum_topic_created: Option<ForumTopicCreated>,
+	pub forum_topic_edited: Option<ForumTopicEdited>,
 	/// Same photo in ascending sizes; the relay picks the largest that fits.
 	pub photo: Option<Vec<PhotoSize>>,
 	pub video: Option<FileMeta>,
@@ -54,6 +55,13 @@ impl User {
 #[derive(Debug, Deserialize)]
 pub struct ForumTopicCreated {
 	pub name: String,
+}
+
+/// A rename carries only what changed, so `name` is absent when the edit touched
+/// just the icon.
+#[derive(Debug, Deserialize)]
+pub struct ForumTopicEdited {
+	pub name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
