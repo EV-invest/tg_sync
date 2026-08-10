@@ -4,7 +4,10 @@
 //! here from `file_size`, so the caller only has to fetch what came back as a
 //! [`PendingFile`].
 
-use crate::telegram::{FileMeta, Message};
+use crate::{
+	channels::GENERAL_THREAD_ID,
+	telegram::{FileMeta, Message},
+};
 
 /// Discord's `content` ceiling. Telegram allows 4096, so long messages split
 /// across sequential posts rather than being truncated.
@@ -42,7 +45,7 @@ pub fn topic_name(message: &Message) -> Option<&str> {
 }
 
 pub fn render(message: &Message, edited: bool, max_bytes: u64) -> Post {
-	let source = source_link(message.chat.id, message.message_thread_id, message.message_id);
+	let source = source_link(message.chat.id, message.chat.is_forum.unwrap_or(false), message.message_thread_id, message.message_id);
 
 	let mut head = String::new();
 	// A forum Topic's first message carries the topic-creation service message as
@@ -126,14 +129,22 @@ enum Media<'a> {
 
 /// `t.me/c/<channel>/<thread>/<id>` — the private-supergroup form documented at
 /// core.telegram.org/api/links. `<channel>` is the Bot API chat id with its
-/// `-100` prefix stripped; the thread segment is absent for the General topic.
-/// Resolves only for members, and only inside a Telegram client.
-fn source_link(chat_id: i64, thread_id: Option<i64>, message_id: i64) -> String {
+/// `-100` prefix stripped.
+///
+/// In a forum the thread segment is always present, including for the General
+/// topic, whose thread id is 1 — Telegram omits `message_thread_id` there, which
+/// is not the same as the message having no thread. Only a non-forum chat gets
+/// the two-segment form.
+///
+/// Resolves only for members, and only inside a Telegram client — the web
+/// endpoint returns the same generic page for every `/c/` link, valid or not.
+fn source_link(chat_id: i64, is_forum: bool, thread_id: Option<i64>, message_id: i64) -> String {
 	let channel = chat_id.to_string();
-	let channel = channel.strip_prefix("-100").unwrap_or(&channel);
-	match thread_id {
-		Some(thread) => format!("https://t.me/c/{channel}/{thread}/{message_id}"),
-		None => format!("https://t.me/c/{channel}/{message_id}"),
+	let channel = channel.strip_prefix("-100").unwrap_or(&channel).to_string();
+	if is_forum {
+		format!("https://t.me/c/{channel}/{}/{message_id}", thread_id.unwrap_or(GENERAL_THREAD_ID))
+	} else {
+		format!("https://t.me/c/{channel}/{message_id}")
 	}
 }
 
@@ -237,9 +248,12 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn a_general_topic_link_has_no_thread_segment() {
-		assert_eq!(source_link(-1001234567890, Some(12), 4567), "https://t.me/c/1234567890/12/4567");
-		assert_eq!(source_link(-1001234567890, None, 4567), "https://t.me/c/1234567890/4567");
+	fn a_forum_link_always_carries_its_thread() {
+		assert_eq!(source_link(-1001234567890, true, Some(12), 4567), "https://t.me/c/1234567890/12/4567");
+		// General: Telegram omits the thread id, but the link still needs thread 1.
+		assert_eq!(source_link(-1001234567890, true, None, 4567), "https://t.me/c/1234567890/1/4567");
+		// Only a chat without Topics gets the two-segment form.
+		assert_eq!(source_link(-1001234567890, false, None, 4567), "https://t.me/c/1234567890/4567");
 	}
 
 	#[test]

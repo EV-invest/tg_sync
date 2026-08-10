@@ -35,6 +35,8 @@ pub struct Message {
 #[derive(Debug, Deserialize)]
 pub struct Chat {
 	pub id: i64,
+	/// Absent on everything that is not a supergroup with Topics enabled.
+	pub is_forum: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
