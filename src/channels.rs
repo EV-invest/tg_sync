@@ -73,7 +73,7 @@ impl Channels {
 			.await
 			.context("failed to list the guild's channels")?
 			.into_iter()
-			.find(|c| c.parent_id.as_deref() == Some(self.category_id.as_str()) && c.topic.as_deref().is_some_and(|t| t.starts_with(&marker)));
+			.find(|c| c.parent_id.as_deref() == Some(self.category_id.as_str()) && c.topic.as_deref().is_some_and(|t| marks(t, &marker)));
 
 		let channel = match existing {
 			Some(channel) => {
@@ -113,6 +113,13 @@ struct Mirror {
 	name: String,
 }
 
+/// The marker is the description's first WORD, never a prefix of it: thread ids
+/// are message ids, so `tg:1` (the General topic) is a prefix of `tg:12` and a
+/// prefix match would hand General another Topic's channel.
+fn marks(description: &str, marker: &str) -> bool {
+	description.split_whitespace().next() == Some(marker)
+}
+
 fn marker(thread: i64, tg_name: Option<&str>) -> String {
 	match tg_name {
 		Some(name) => format!("tg:{thread} — mirrored from the Telegram topic \"{name}\""),
@@ -145,6 +152,15 @@ fn slug(tg_name: Option<&str>, thread: i64) -> String {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn a_marker_never_matches_a_longer_thread_id() {
+		assert!(marks(&marker(1, None), "tg:1"));
+		assert!(marks(&marker(1, Some("General")), "tg:1"));
+		// The whole point: id 1 must not adopt id 12's channel.
+		assert!(!marks(&marker(12, Some("Dev")), "tg:1"));
+		assert!(!marks(&marker(12, None), "tg:1"));
+	}
 
 	#[test]
 	fn slugs_are_discord_safe_and_never_empty() {
