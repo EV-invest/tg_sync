@@ -1,0 +1,33 @@
+[package]
+name = "tg_sync"
+version = "0.1.0"
+edition = "2024"
+description = "One-way bridge mirroring the EV Telegram supergroup's forum Topics into Discord channels."
+license = "BlueOak-1.0.0"
+publish = false
+
+[dependencies]
+# One route (`/health`) for the k8s probes the v_flakes container contract generates.
+axum = "0.8"
+color-eyre = "0.6"
+dotenvy = "0.15"
+ev = { version = "0.6", package = "ev_lib", default-features = false, features = ["otel", "settings"] }
+# rustls only (no native-tls), matching the rest of the stack. `multipart` is the
+# Discord file-upload seam; `stream` is not needed — relayed files are capped well
+# under the buffer size we are willing to hold.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "multipart"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[lints.rust]
+unused_features = "allow"
+
+# smaller target/: trim debuginfo (deps need none), keep line tables for backtraces
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
