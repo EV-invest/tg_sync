@@ -84,9 +84,15 @@ async fn mirror(telegram: &Telegram, discord: &Discord, router: &Router, config:
 
 /// Every failure here propagates: the offset is not advanced, so k8s restarts the
 /// pod and Telegram hands the same message back. Duplicates are bounded; loss is not.
+///
+// ponytail: a message Discord rejects *permanently* (a 400 no retry can fix)
+// crashloops forever instead of advancing — the deliberate price of "never drop".
+// The tg-sync alert front is what surfaces it; add a poison-message quarantine
+// channel only once one actually shows up.
 async fn relay(telegram: &Telegram, discord: &Discord, router: &Router, config: &Config, message: &telegram::Message, edited: bool) -> Result<()> {
 	let webhook = router.route(message.message_thread_id);
 	let post = render::render(message, edited, config.tg_media_max_bytes);
+	assert!(!post.chunks.is_empty(), "render always emits the source subtext line");
 
 	let bytes = match &post.file {
 		Some(file) => Some((
