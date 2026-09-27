@@ -59,6 +59,7 @@ async fn run(config: Config) -> Result<()> {
 		result = health => result.context("health server error")?,
 		result = mirror(&telegram, channels, &config) => result?,
 		_ = await_signal() => tracing::info!("shutdown signal received"),
+		never = Config::watch_drift() => match never {},
 	}
 	Ok(())
 }
